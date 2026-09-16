@@ -60,6 +60,10 @@ spec:
               value: production
             - name: PORT
               value: "3000"
+          volumeMounts:
+            - name: rds-ca
+              mountPath: /etc/wastage/rds
+              readOnly: true
           resources:
             requests:
               cpu: 500m
@@ -79,3 +83,9 @@ spec:
               port: 3000
             initialDelaySeconds: 20
             periodSeconds: 30
+      volumes:
+        # The Amazon RDS eu-west-2 root bundle the composed production publishes as a ConfigMap
+        # (monorepo infrastructure/k8s/wastage); DATABASE_URL names it with sslrootcert= (docs/infra/WASTAGE-CUTOVER.md).
+        - name: rds-ca
+          configMap:
+            name: wastage-rds-ca
