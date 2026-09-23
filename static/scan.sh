@@ -243,7 +243,8 @@ if [ "$MODE" = "slurm" ]; then
             next
         }
 
-        cpus=$2+0; state=$8
+        # sacct prints user cancellations as "CANCELLED by <uid>", so keep only the state name
+        cpus=$2+0; state=$8; sub(/ .*/, "", state)
         if (state=="RUNNING"||state=="PENDING"||state=="REQUEUED"||state=="SUSPENDED") next
 
         job_req[$1] = $5; job_cpus[$1] = cpus
@@ -274,7 +275,7 @@ if [ "$MODE" = "slurm" ]; then
         total_jobs++
         total_ch += ch
 
-        if (state=="FAILED"||state=="TIMEOUT"||state=="CANCELLED"||state=="OUT_OF_MEMORY"||state=="NODE_FAIL") {
+        if (state=="FAILED"||state=="TIMEOUT"||state=="CANCELLED"||state=="OUT_OF_MEMORY"||state=="NODE_FAIL"||state=="DEADLINE"||state=="BOOT_FAIL") {
             fail_n++; fail_ch += ch
         } else if (alloc > 0 && (used / alloc) < 0.001) {
             # TotalCPU < 0.1% of allocated CPU-seconds
