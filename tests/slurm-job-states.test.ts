@@ -55,8 +55,9 @@ function scanReport(sacct: string): Record<string, unknown> {
 }
 
 // JobID|AllocCPUS|Elapsed|TotalCPU|ReqMem|MaxRSS|AllocTRES|State, as sacct --parsable2 prints them.
-function job(id: number, totalCpu: string, state: string, elapsed = '01:00:00'): string {
-	return `${id}|8|${elapsed}|${totalCpu}|16G|0|billing=8,cpu=8,mem=16G,node=1|${state}\n`;
+function job(id: number, totalCpu: string, state: string, elapsed = '01:00:00', cpus = 8, gpus = 0): string {
+	const tres = `billing=${cpus},cpu=${cpus},mem=16G,node=1${gpus > 0 ? `,gres/gpu=${gpus}` : ''}`;
+	return `${id}|${cpus}|${elapsed}|${totalCpu}|16G|0|${tres}|${state}\n`;
 }
 
 describe('SLURM job states', () => {
@@ -92,5 +93,42 @@ describe('SLURM job states', () => {
 		);
 
 		expect(report).toMatchObject({ job_count: 2, failed_jobs: 1, avg_cpu_waste_pct: 6.25 });
+		// A job that never started burned nothing, so it adds a job and no hours.
+		expect(report).toMatchObject({ total_core_hours: 8, failed_core_pct: 0 });
+	});
+
+	it('bills the core hours of a job that failed in seconds', () => {
+		// A nine-second failure used to be counted in job_count and failed_jobs while its core hours went
+		// nowhere, so a whole node dying at launch read as costing zero and failed_core_pct came out low.
+		const report = scanReport(
+			job(101, '07:30:00', 'COMPLETED') + job(102, '00:00:01', 'FAILED', '00:00:09', 3200)
+		);
+
+		// 8 core-hours completed, 3200 cores x 9s = 8 core-hours failed.
+		expect(report).toMatchObject({
+			job_count: 2,
+			failed_jobs: 1,
+			total_core_hours: 16,
+			failed_core_pct: 50
+		});
+	});
+
+	it('bills the GPU hours of a job that failed in seconds', () => {
+		const report = scanReport(
+			job(101, '07:30:00', 'COMPLETED') + job(102, '00:00:01', 'NODE_FAIL', '00:00:09', 8, 8)
+		);
+
+		// 8 GPUs x 9s = 0.02 GPU-hours, which is small and is not nothing.
+		expect(report).toMatchObject({ job_count: 2, failed_jobs: 1, gpu_jobs: 1, gpu_hours: 0.02 });
+	});
+
+	it('still ignores short jobs that did not fail', () => {
+		const report = scanReport(
+			job(101, '07:30:00', 'COMPLETED') +
+				job(102, '00:00:01', 'COMPLETED', '00:00:09', 3200) +
+				job(103, '00:00:01', 'CANCELLED by 1001', '00:00:09', 3200)
+		);
+
+		expect(report).toMatchObject({ job_count: 1, failed_jobs: 0, total_core_hours: 8 });
 	});
 });
