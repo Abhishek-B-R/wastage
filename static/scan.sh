@@ -259,7 +259,13 @@ if [ "$MODE" = "slurm" ]; then
         else if (n1==2) esec=d1*86400+a1[1]*60+a1[2]
         else esec=d1*86400+a1[1]+0
 
-        if (esec < 10) next
+        failed = (state=="FAILED"||state=="TIMEOUT"||state=="CANCELLED"||state=="OUT_OF_MEMORY"||state=="NODE_FAIL"||state=="DEADLINE"||state=="BOOT_FAIL")
+        # A job that failed before it ran (BOOT_FAIL, a bad script path) still counts as failed. A job cancelled
+        # that fast was withdrawn from the queue, not a failure, so it is skipped like any other short job.
+        if (esec < 10) {
+            if (failed && state!="CANCELLED") { total_jobs++; fail_n++ }
+            next
+        }
         alloc = cpus * esec
         if (alloc <= 0) next
 
@@ -275,7 +281,7 @@ if [ "$MODE" = "slurm" ]; then
         total_jobs++
         total_ch += ch
 
-        if (state=="FAILED"||state=="TIMEOUT"||state=="CANCELLED"||state=="OUT_OF_MEMORY"||state=="NODE_FAIL"||state=="DEADLINE"||state=="BOOT_FAIL") {
+        if (failed) {
             fail_n++; fail_ch += ch
         } else if (alloc > 0 && (used / alloc) < 0.001) {
             # TotalCPU < 0.1% of allocated CPU-seconds

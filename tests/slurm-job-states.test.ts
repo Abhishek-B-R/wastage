@@ -55,8 +55,8 @@ function scanReport(sacct: string): Record<string, unknown> {
 }
 
 // JobID|AllocCPUS|Elapsed|TotalCPU|ReqMem|MaxRSS|AllocTRES|State, as sacct --parsable2 prints them.
-function job(id: number, totalCpu: string, state: string): string {
-	return `${id}|8|01:00:00|${totalCpu}|16G|0|billing=8,cpu=8,mem=16G,node=1|${state}\n`;
+function job(id: number, totalCpu: string, state: string, elapsed = '01:00:00'): string {
+	return `${id}|8|${elapsed}|${totalCpu}|16G|0|billing=8,cpu=8,mem=16G,node=1|${state}\n`;
 }
 
 describe('SLURM job states', () => {
@@ -79,6 +79,17 @@ describe('SLURM job states', () => {
 
 	it('counts a job that hit its deadline as failed', () => {
 		const report = scanReport(job(101, '07:30:00', 'COMPLETED') + job(102, '00:30:00', 'DEADLINE'));
+
+		expect(report).toMatchObject({ job_count: 2, failed_jobs: 1, avg_cpu_waste_pct: 6.25 });
+	});
+
+	it('counts a job that failed to boot as failed even with no elapsed time', () => {
+		const report = scanReport(
+			job(101, '07:30:00', 'COMPLETED') +
+				job(102, '00:00:00', 'BOOT_FAIL', '00:00:00') +
+				job(103, '00:00:00', 'CANCELLED by 1001', '00:00:00') +
+				job(104, '00:00:02', 'COMPLETED', '00:00:05')
+		);
 
 		expect(report).toMatchObject({ job_count: 2, failed_jobs: 1, avg_cpu_waste_pct: 6.25 });
 	});
