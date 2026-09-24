@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import {
   accessSync,
   chmodSync,
@@ -42,6 +42,7 @@ function findExecutable(name: string): string {
 function runScan(sacct: string): {
   report: Record<string, unknown>;
   files: string[];
+  cpuPartial: string | undefined;
 } {
   const fixtureDir = mkdtempSync(join(tmpdir(), "wastage-share-"));
   fixtureDirs.push(fixtureDir);
@@ -70,9 +71,11 @@ function runScan(sacct: string): {
   chmodSync(sacctPath, 0o755);
   planted.add("sacct");
 
-  const output = execFileSync(
+  // CPU_PARTIAL is not in the report, so the scan runs under xtrace and the test reads the last value the
+  // SLURM path assigned to it from the trace.
+  const result = spawnSync(
     join(fixtureDir, "bash"),
-    [scanner, "--local", "--json"],
+    ["-x", scanner, "--local", "--json"],
     {
       cwd: fixtureDir,
       encoding: "utf8",
@@ -81,12 +84,16 @@ function runScan(sacct: string): {
       env: { ...process.env, PATH: fixtureDir, FAKE_SACCT: sacct },
     },
   );
+  expect(result.status, result.stderr).toBe(0);
+  const output = result.stdout;
+  const assignments = [...result.stderr.matchAll(/^\++ CPU_PARTIAL=(\w+)$/gm)];
 
   const reportStart = output.indexOf('{\n  "scheduler_type"');
   expect(reportStart, "scanner JSON report").toBeGreaterThanOrEqual(0);
   return {
     report: JSON.parse(output.slice(reportStart)) as Record<string, unknown>,
     files: readdirSync(fixtureDir).filter((name) => !planted.has(name)),
+    cpuPartial: assignments.at(-1)?.[1],
   };
 }
 
@@ -104,19 +111,21 @@ describe("untracked core-hour share", () => {
   it("writes no stray file when most core hours are untracked", () => {
     // Two jobs reporting near-zero TotalCPU are classified untracked, which puts the share well over 0.3
     // and is the case that used to create the file.
-    const { report, files } = runScan(
+    const { report, files, cpuPartial } = runScan(
       job(101, "00:00:01") + job(102, "00:00:01") + job(103, "07:30:00"),
     );
 
     expect(report).toMatchObject({ job_count: 3 });
     expect(files).toEqual([]);
+    expect(cpuPartial).toBe("true");
   });
 
   it("writes no stray file when the share is under the threshold", () => {
-    const { files } = runScan(
+    const { files, cpuPartial } = runScan(
       job(101, "07:30:00") + job(102, "07:30:00") + job(103, "07:30:00"),
     );
 
     expect(files).toEqual([]);
+    expect(cpuPartial).toBe("false");
   });
 });
