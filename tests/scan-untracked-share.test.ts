@@ -73,6 +73,7 @@ function runScan(sacct: string): {
 
   // CPU_PARTIAL is not in the report, so the scan runs under xtrace and the test reads the last value the
   // SLURM path assigned to it from the trace.
+  // PS4 is pinned so an inherited custom prompt cannot change the trace prefix the regex expects.
   const result = spawnSync(
     join(fixtureDir, "bash"),
     ["-x", scanner, "--local", "--json"],
@@ -81,7 +82,7 @@ function runScan(sacct: string): {
       encoding: "utf8",
       input: "\n",
       timeout: 15_000,
-      env: { ...process.env, PATH: fixtureDir, FAKE_SACCT: sacct },
+      env: { ...process.env, PATH: fixtureDir, FAKE_SACCT: sacct, PS4: "+ " },
     },
   );
   expect(result.status, result.stderr).toBe(0);
